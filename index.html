@@ -409,10 +409,24 @@ function pctClassShift(n, date, inHour){
   return 'tip-low';
 }
 
-function shiftLabel(date, inHour){
+function fmtInTime(inHour, inMin){
+  if(inHour===null) return '';
+  const h=inHour%12||12;
+  const ampm=inHour<12?'am':'pm';
+  if(inMin===0||inMin==null) return `${h}${ampm}`;
+  return `${h}:${String(inMin).padStart(2,'0')}${ampm}`;
+}
+function shiftLabel(date, inHour, inMin){
   const{label}=shiftType(date,inHour);
-  if(!label) return '';
-  return `<span style="font-size:.65rem;color:var(--text2);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;margin-left:6px;white-space:nowrap">${label}</span>`;
+  const timeStr=fmtInTime(inHour,inMin);
+  if(!label&&!timeStr) return '';
+  if(!label) return `<span style="font-size:.65rem;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;margin-left:6px;white-space:nowrap">${timeStr}</span>`;
+  // Before 12pm → green, 12pm–2pm → blue
+  const isB12=label==='Before 12pm';
+  const color=isB12?'#4ecb7a':'#7eb8e8';
+  const bg=isB12?'rgba(78,203,122,.1)':'rgba(126,184,232,.1)';
+  const border=isB12?'rgba(78,203,122,.3)':'rgba(126,184,232,.3)';
+  return `<span style="font-size:.65rem;color:${color};background:${bg};border:1px solid ${border};border-radius:4px;padding:1px 6px;margin-left:4px;white-space:nowrap">${timeStr} · ${label}</span>`;
 }
 function parseLocalDate(d){ const[y,m,day]=d.split('-').map(Number); return new Date(y,m-1,day); }
 function dayPill(d){ const day=DAYS[parseLocalDate(d).getDay()]; const c=day==='Sat'?'day-sat':day==='Sun'?'day-sun':day==='Fri'?'day-fri':''; return `<span class="day-pill ${c}">${day}</span>`; }
@@ -438,15 +452,16 @@ function parseCSV(text,fileName){
     // Parse inTime hour from "2/23/26 3:06 PM" format
     const inTimeStr=row['In Date']||'';
     const inTimeMatch=inTimeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
-    let inHour=null;
+    let inHour=null, inMin=0;
     if(inTimeMatch){
       let h=parseInt(inTimeMatch[1]);
+      inMin=parseInt(inTimeMatch[2]);
       const ampm=inTimeMatch[3].toUpperCase();
       if(ampm==='PM'&&h!==12) h+=12;
       if(ampm==='AM'&&h===12) h=0;
       inHour=h; // 0-23
     }
-    tmp.push({ date:parseDate(row['In Date']), employee:row['Employee'], role, inHour,
+    tmp.push({ date:parseDate(row['In Date']), employee:row['Employee'], role, inHour, inMin,
       totalSales:getNum(row,'Total Sales'), cashSales:getNum(row,'Cash Sales'), nonCashSales:getNum(row,'Non-Cash Sales'),
       cashTips:getNum(row,'Cash Tips Decl.'), cashGratuity:getNum(row,'Cash Gratuity'),
       nonCashTips:getNum(row,'Non-Cash Tips'), nonCashGratuity:getNum(row,'Non-Cash Gratuity') });
@@ -457,8 +472,8 @@ function parseCSV(text,fileName){
     if(!merged[k]){ merged[k]={...r}; }
     else {
       ['totalSales','cashSales','nonCashSales','cashTips','cashGratuity','nonCashTips','nonCashGratuity'].forEach(f=>merged[k][f]+=r[f]);
-      // Keep earliest inHour
-      if(r.inHour!==null && (merged[k].inHour===null || r.inHour < merged[k].inHour)) merged[k].inHour=r.inHour;
+      // Keep earliest inHour (and corresponding inMin)
+      if(r.inHour!==null && (merged[k].inHour===null || r.inHour < merged[k].inHour || (r.inHour===merged[k].inHour && r.inMin<merged[k].inMin))){ merged[k].inHour=r.inHour; merged[k].inMin=r.inMin; }
     }
   });
   rawData=Object.values(merged).sort((a,b)=>a.date!==b.date?a.date.localeCompare(b.date):a.employee.localeCompare(b.employee));
@@ -572,7 +587,7 @@ function renderPage2(){
 
 function desktopRow(r){
   const{cashPct,ncPct,totalPct}=calcTipPcts(r);
-  const sl=shiftLabel(r.date,r.inHour);
+  const sl=shiftLabel(r.date,r.inHour,r.inMin);
   return`<tr>
     <td><span style="font-family:'DM Mono',monospace;font-size:.75rem">${r.date}</span></td>
     <td>${dayPill(r.date)}</td>
@@ -592,14 +607,14 @@ function desktopRow(r){
 
 function mobileCard(r){
   const{cashPct,ncPct,totalPct,cashTotal,ncTotal}=calcTipPcts(r);
-  const{label}=shiftType(r.date,r.inHour);
+  const sl=shiftLabel(r.date,r.inHour,r.inMin);
   const cashCls=pctClassShift(cashPct,r.date,r.inHour);
   const ncCls=pctClassShift(ncPct,r.date,r.inHour);
   return`<div class="row-card">
     <div style="margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <div class="row-card-name">${r.employee}</div>
-        ${label?`<span style="font-size:.65rem;color:var(--text2);background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:2px 7px">${label}</span>`:''}
+        ${sl}
       </div>
       <div style="font-size:.68rem;color:var(--text3);margin-top:3px">Server</div>
     </div>
@@ -744,8 +759,15 @@ function renderPage3(){
 
 // ─── UNIFIED EXCEL DOWNLOAD ──────────────────────────────
 function downloadAll(){
-  const wb=XLSX.utils.book_new();
+  // Build filename: "3.2-3.8 tip tracker.xlsx"
   const serverRows=rawData.filter(r=>isServer(r.role));
+  const allDates=[...new Set(serverRows.map(r=>r.date))].sort();
+  let fileName='tip tracker.xlsx';
+  if(allDates.length){
+    const fmt=d=>{ const[,m,day]=d.split('-'); return `${parseInt(m)}.${parseInt(day)}`; };
+    fileName=`${fmt(allDates[0])}-${fmt(allDates[allDates.length-1])} tip tracker.xlsx`;
+  }
+  const wb=XLSX.utils.book_new();
 
   // ── Common style helpers ──
   const hdrStyle={
@@ -794,12 +816,16 @@ function downloadAll(){
     const{cashPct,ncPct,totalPct,cashTotal,ncTotal}=calcTipPcts(r);
     const{label}=shiftType(r.date,r.inHour);
     const{blueMin}=shiftTypeEx(r.date,r.inHour);
+    const timeStr=fmtInTime(r.inHour, r.inMin);
+    // Shift Type cell: "11:30am · Before 12pm" or just "11am" if no label
+    const shiftCell=label ? `${timeStr} · ${label}` : (timeStr||'');
     return{
-      row:[r.date,getDay(r.date),r.employee,label||'',r.totalSales,
+      row:[r.date,getDay(r.date),r.employee,shiftCell,r.totalSales,
         r.cashSales,r.cashTips,r.cashGratuity,cashPct!=null?cashPct/100:'',
         r.nonCashSales,r.nonCashTips,r.nonCashGratuity,ncPct!=null?ncPct/100:'',
         cashTotal+ncTotal, totalPct!=null?totalPct/100:''],
       blueMin,
+      shiftLabel: label, // 'Before 12pm' | '12pm–2pm shift' | null
       cashPctV:cashPct!=null?cashPct/100:'',
       ncPctV:ncPct!=null?ncPct/100:'',
       totalPctV:totalPct!=null?totalPct/100:''
@@ -831,6 +857,14 @@ function downloadAll(){
       const addr=col+row;
       if(ws1[addr]) ws1[addr].s=pctStyle(v,bm);
     });
+    // Shift Type (D) color: Before 12pm → green, 12pm–2pm → blue
+    if(d.shiftLabel){
+      const isB12=d.shiftLabel==='Before 12pm';
+      const shiftStyle=isB12
+        ? {font:{bold:true,color:{rgb:'1A7A3C'}},fill:{fgColor:{rgb:'D6F5E3'}},alignment:{horizontal:'left'}}
+        : {font:{bold:true,color:{rgb:'1A4A7A'}},fill:{fgColor:{rgb:'D6E8F5'}},alignment:{horizontal:'left'}};
+      if(ws1['D'+row]) ws1['D'+row].s=shiftStyle;
+    }
     // % format
     ['I','M','O'].forEach(col=>{ const c=ws1[col+row]; if(c&&c.v!=='') c.z='0.0%'; });
   });
@@ -882,7 +916,7 @@ function downloadAll(){
   });
   XLSX.utils.book_append_sheet(wb,ws2,'Weekly Summary');
 
-  XLSX.writeFile(wb,'TipTrack_FullReport.xlsx');
+  XLSX.writeFile(wb,fileName);
 }
 </script>
 </body>
