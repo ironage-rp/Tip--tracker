@@ -394,9 +394,9 @@ function pctClass(n){ if(!isFinite(n)||isNaN(n)||n==null) return ''; if(n>=18) r
 function shiftTypeEx(date, inHour){
   const dayIdx=parseLocalDate(date).getDay();
   const isWeekday=(dayIdx>=1&&dayIdx<=4);
-  if(!isWeekday||inHour===null) return {label:null,   greenMin:18, blueMin:16};
-  if(inHour<12)  return {label:'Before 12pm',  greenMin:18, blueMin:15};
-  if(inHour<14)  return {label:'12pm–2pm shift',   greenMin:18, blueMin:15.5};
+  if(!isWeekday||inHour===null) return {label:null,        greenMin:18, blueMin:16};
+  if(inHour<12)  return {label:'Before 12pm',      greenMin:18, blueMin:16};
+  if(inHour<14)  return {label:'12pm–2pm shift',   greenMin:18, blueMin:16};
   return {label:null, greenMin:18, blueMin:16};
 }
 function shiftType(date, inHour){ return shiftTypeEx(date, inHour); }
