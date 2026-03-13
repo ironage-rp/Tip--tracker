@@ -310,6 +310,34 @@
       <div class="page-title">Weekly Summary</div>
       <div class="page-desc">Total tip % for the week, per employee.</div>
     </div>
+
+    <!-- DAILY RECORD CARD -->
+    <div class="table-wrap" style="margin-bottom:20px">
+      <div class="table-toolbar">
+        <div class="table-toolbar-title">Daily Record</div>
+      </div>
+      <div class="overflow-x">
+        <table id="dailyRecordTable">
+          <thead><tr>
+            <th>Day</th>
+            <th>Date</th>
+            <th class="num">Tickets</th>
+            <th class="num">Net Sales</th>
+            <th class="num">Tax</th>
+            <th class="num">Total Sales</th>
+            <th class="num">Credit Tip</th>
+            <th class="num">Credit Service</th>
+            <th class="num">Credit Total</th>
+            <th class="num">Cash Tip</th>
+            <th class="num">Cash Service</th>
+            <th class="num">Cash Total</th>
+            <th class="num">Tip Total</th>
+            <th class="num">Tip %</th>
+          </tr></thead>
+          <tbody id="tbodyRecord"></tbody>
+        </table>
+      </div>
+    </div>
     <div class="table-wrap desktop-table" style="margin-bottom:20px">
       <div class="tip-legend">
         <span style="font-weight:600;color:var(--text2);margin-right:6px">Color Guide:</span>
@@ -320,7 +348,7 @@
       <div class="overflow-x">
         <table><thead><tr>
           <th>Employee</th><th class="num">Shifts</th>
-          <th class="num">Total Sales</th><th class="num">Cash Sales</th>
+          <th class="num">Net Sales</th><th class="num">Cash Sales</th>
           <th class="num">Cash Tips+Grat</th><th class="num">Cash %</th>
           <th class="num">NC Sales</th><th class="num">NC Tips+Grat</th>
           <th class="num">NC %</th><th class="num">Overall %</th>
@@ -432,7 +460,10 @@ function parseLocalDate(d){ const[y,m,day]=d.split('-').map(Number); return new 
 function dayPill(d){ const day=DAYS[parseLocalDate(d).getDay()]; const c=day==='Sat'?'day-sat':day==='Sun'?'day-sun':day==='Fri'?'day-fri':''; return `<span class="day-pill ${c}">${day}</span>`; }
 function getDay(d){ return DAYS[parseLocalDate(d).getDay()]; }
 function parseDate(str){ const m=String(str||'').match(/(\d+)\/(\d+)\/(\d+)/); if(!m) return ''; const yr=parseInt(m[3])<100?2000+parseInt(m[3]):parseInt(m[3]); return `${yr}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`; }
+const TAX_RATE=1.08875; // NY 8.875% — divide sales by this to get pre-tax
+
 function getNum(row,key){ const v=parseFloat(row[key]); return isNaN(v)?0:v; }
+function preTax(n){ return n/TAX_RATE; }
 
 // ─── DATA ─────────────────────────────────────────────────
 let rawData=[];
@@ -462,7 +493,11 @@ function parseCSV(text,fileName){
       inHour=h; // 0-23
     }
     tmp.push({ date:parseDate(row['In Date']), employee:row['Employee'], role, inHour, inMin,
-      totalSales:getNum(row,'Total Sales'), cashSales:getNum(row,'Cash Sales'), nonCashSales:getNum(row,'Non-Cash Sales'),
+      tickets: parseInt(row['Closed']||'0')||0,
+      totalSales:preTax(getNum(row,'Total Sales')),
+      totalSalesRaw:getNum(row,'Total Sales'),
+      cashSales:preTax(getNum(row,'Cash Sales')),
+      nonCashSales:preTax(getNum(row,'Non-Cash Sales')),
       cashTips:getNum(row,'Cash Tips Decl.'), cashGratuity:getNum(row,'Cash Gratuity'),
       nonCashTips:getNum(row,'Non-Cash Tips'), nonCashGratuity:getNum(row,'Non-Cash Gratuity') });
   }
@@ -471,7 +506,7 @@ function parseCSV(text,fileName){
   tmp.forEach(r=>{ const k=r.date+'|'+r.employee;
     if(!merged[k]){ merged[k]={...r}; }
     else {
-      ['totalSales','cashSales','nonCashSales','cashTips','cashGratuity','nonCashTips','nonCashGratuity'].forEach(f=>merged[k][f]+=r[f]);
+      ['tickets','totalSales','totalSalesRaw','cashSales','nonCashSales','cashTips','cashGratuity','nonCashTips','nonCashGratuity'].forEach(f=>merged[k][f]+=r[f]);
       // Keep earliest inHour (and corresponding inMin)
       if(r.inHour!==null && (merged[k].inHour===null || r.inHour < merged[k].inHour || (r.inHour===merged[k].inHour && r.inMin<merged[k].inMin))){ merged[k].inHour=r.inHour; merged[k].inMin=r.inMin; }
     }
@@ -531,10 +566,12 @@ function renderPage2(){
 
   // Stats
   const ts=rows.reduce((a,r)=>a+r.totalSales,0);
+  const tsRaw=rows.reduce((a,r)=>a+r.totalSalesRaw,0);
   const tt=rows.reduce((a,r)=>a+r.cashTips+r.cashGratuity+r.nonCashTips+r.nonCashGratuity,0);
   const ttPct=ts>0?tt/ts*100:null;
   document.getElementById('overviewStats').innerHTML=`
-    <div class="stat-card"><div class="stat-label">Total Sales</div><div class="stat-val">${fmt$(ts)}</div></div>
+    <div class="stat-card"><div class="stat-label">Net Sales</div><div class="stat-val">${fmt$(ts)}</div></div>
+    <div class="stat-card"><div class="stat-label">Total Sales <span style="font-size:.6rem;color:var(--text3)">(w/ tax)</span></div><div class="stat-val" style="color:var(--text2)">${fmt$(tsRaw)}</div></div>
     <div class="stat-card"><div class="stat-label">Total Tips</div><div class="stat-val blue">${fmt$(tt)}</div></div>
     <div class="stat-card"><div class="stat-label">Total Tip %</div><div class="stat-val green">${ttPct!=null?ttPct.toFixed(1)+'%':'—'}</div></div>
     <div class="stat-card"><div class="stat-label">Servers</div><div class="stat-val">${[...new Set(rows.map(r=>r.employee))].length}</div></div>`;
@@ -639,6 +676,95 @@ function mobileCard(r){
   </div>`;
 }
 
+// ─── PAGE 3: DAILY RECORD ────────────────────────────────
+function buildDailyRecord(){
+  // All roles — aggregate by date
+  const byDate={};
+  rawData.forEach(r=>{
+    if(!byDate[r.date]) byDate[r.date]={
+      tickets:0, totalSalesRaw:0,
+      ncTips:0, ncGrat:0, cashTips:0, cashGrat:0
+    };
+    const d=byDate[r.date];
+    // Closed column was stored as tickets per row in rawData
+    d.tickets      += r.tickets||0;
+    d.totalSalesRaw+= r.totalSalesRaw||0;
+    d.ncTips       += r.nonCashTips||0;
+    d.ncGrat       += r.nonCashGratuity||0;
+    d.cashTips     += r.cashTips||0;
+    d.cashGrat     += r.cashGratuity||0;
+  });
+  return Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0])).map(([date,d])=>{
+    const netSales  = d.totalSalesRaw / TAX_RATE;
+    const tax       = d.totalSalesRaw - netSales;
+    const creditTip = d.ncTips;
+    const creditSvc = d.ncGrat;
+    const creditTot = creditTip + creditSvc;
+    const cashTip   = d.cashTips;
+    const cashSvc   = d.cashGrat;
+    const cashTot   = cashTip + cashSvc;
+    const tipTotal  = creditTot + cashTot;
+    const tipPct    = netSales > 0 ? tipTotal / netSales * 100 : null;
+    return { date, day:getDay(date), tickets:d.tickets,
+      netSales, tax, totalSalesRaw:d.totalSalesRaw,
+      creditTip, creditSvc, creditTot,
+      cashTip, cashSvc, cashTot,
+      tipTotal, tipPct };
+  });
+}
+
+function renderDailyRecord(){
+  const rows=buildDailyRecord();
+  if(!rows.length){ document.getElementById('tbodyRecord').innerHTML='<tr><td colspan="14" style="text-align:center;color:var(--text3);padding:28px">No data</td></tr>'; return; }
+
+  // Totals row
+  const tot={tickets:0,netSales:0,tax:0,totalSalesRaw:0,creditTip:0,creditSvc:0,creditTot:0,cashTip:0,cashSvc:0,cashTot:0,tipTotal:0};
+  rows.forEach(r=>{ for(const k in tot) tot[k]+=r[k]||0; });
+  const totPct=tot.netSales>0?tot.tipTotal/tot.netSales*100:null;
+
+  const pctCls=n=>{ if(n==null) return ''; if(n>=18) return 'tip-high'; if(n>=16) return 'tip-mid'; return 'tip-low'; };
+  const fmtN=n=>n==null?'—':n.toFixed(0);
+
+  let html=rows.map((r,i)=>{
+    const base=i%2===0?'background:rgba(247,246,242,.04)':'';
+    return`<tr style="${base}">
+      <td>${r.day}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:.75rem">${r.date}</td>
+      <td class="num">${fmtN(r.tickets)}</td>
+      <td class="num">${fmt$(r.netSales)}</td>
+      <td class="num" style="color:var(--text3)">${fmt$(r.tax)}</td>
+      <td class="num" style="color:var(--text2)">${fmt$(r.totalSalesRaw)}</td>
+      <td class="num">${fmt$(r.creditTip)}</td>
+      <td class="num">${fmt$(r.creditSvc)}</td>
+      <td class="num">${fmt$(r.creditTot)}</td>
+      <td class="num">${fmt$(r.cashTip)}</td>
+      <td class="num">${fmt$(r.cashSvc)}</td>
+      <td class="num">${fmt$(r.cashTot)}</td>
+      <td class="num" style="font-weight:600">${fmt$(r.tipTotal)}</td>
+      <td class="num"><span class="tip-pct ${pctCls(r.tipPct)}">${r.tipPct!=null?r.tipPct.toFixed(1)+'%':'—'}</span></td>
+    </tr>`;
+  }).join('');
+
+  // Totals footer
+  html+=`<tr style="background:var(--surface2);font-weight:700;border-top:2px solid var(--border)">
+    <td colspan="2" style="color:var(--accent);font-size:.78rem;letter-spacing:.05em">TOTAL</td>
+    <td class="num">${fmtN(tot.tickets)}</td>
+    <td class="num" style="color:var(--accent)">${fmt$(tot.netSales)}</td>
+    <td class="num" style="color:var(--text3)">${fmt$(tot.tax)}</td>
+    <td class="num" style="color:var(--text2)">${fmt$(tot.totalSalesRaw)}</td>
+    <td class="num">${fmt$(tot.creditTip)}</td>
+    <td class="num">${fmt$(tot.creditSvc)}</td>
+    <td class="num">${fmt$(tot.creditTot)}</td>
+    <td class="num">${fmt$(tot.cashTip)}</td>
+    <td class="num">${fmt$(tot.cashSvc)}</td>
+    <td class="num">${fmt$(tot.cashTot)}</td>
+    <td class="num" style="color:var(--accent)">${fmt$(tot.tipTotal)}</td>
+    <td class="num"><span class="tip-pct ${pctCls(totPct)}">${totPct!=null?totPct.toFixed(1)+'%':'—'}</span></td>
+  </tr>`;
+
+  document.getElementById('tbodyRecord').innerHTML=html;
+}
+
 // ─── PAGE 3: WEEKLY SUMMARY ───────────────────────────────
 function buildWeeklyMap(){
   const em={};
@@ -678,6 +804,7 @@ function pctClassWeekly(n,blueMin){
 }
 
 function renderPage3(){
+  renderDailyRecord();
   const emps=buildWeeklyMap();
 
   // Desktop table
@@ -748,9 +875,9 @@ function renderPage3(){
         </div>
       </div>
       <div class="emp-divider"></div>
-      <!-- Total Sales -->
+      <!-- Net Sales -->
       <div class="emp-total-row">
-        <span class="emp-total-lbl">Total Sales</span>
+        <span class="emp-total-lbl">Net Sales</span>
         <span class="emp-total-val">${fmt$(e.totalSales)}</span>
       </div>
     </div>`;
@@ -779,6 +906,7 @@ function downloadAll(){
   const rowEven={fill:{fgColor:{rgb:'F7F6F2'}}};
   const rowOdd ={fill:{fgColor:{rgb:'FFFFFF'}}};
   const numFmt={alignment:{horizontal:'right'}};
+  const DOLLAR='"$"#,##0.00';  // $1,234.56 format
   const pctGreen={font:{bold:true,color:{rgb:'1A7A3C'}},fill:{fgColor:{rgb:'D6F5E3'}},alignment:{horizontal:'center'}};
   const pctBlue ={font:{bold:true,color:{rgb:'1A4A7A'}},fill:{fgColor:{rgb:'D6E8F5'}},alignment:{horizontal:'center'}};
   const pctRed  ={font:{bold:true,color:{rgb:'7A1A1A'}},fill:{fgColor:{rgb:'F5D6D6'}},alignment:{horizontal:'center'}};
@@ -867,12 +995,14 @@ function downloadAll(){
     }
     // % format
     ['I','M','O'].forEach(col=>{ const c=ws1[col+row]; if(c&&c.v!=='') c.z='0.0%'; });
+    // Dollar format
+    ['E','F','G','H','J','K','L','N'].forEach(col=>{ const c=ws1[col+row]; if(c&&c.v!=='') c.z=DOLLAR; });
   });
   XLSX.utils.book_append_sheet(wb,ws1,'Shift Overview');
 
   // ── Sheet 2: Weekly Summary ──
   const emps=buildWeeklyMap();
-  const s2H=['Employee','Shifts','Before 12pm','12pm–2pm Shift','Regular','Total Sales','Cash Sales','Cash Tips+Grat','Cash %',
+  const s2H=['Employee','Shifts','Before 12pm','12pm–2pm Shift','Regular','Net Sales','Cash Sales','Cash Tips+Grat','Cash %',
     'NC Sales','NC Tips+Grat','NC %','Total Tips','Overall %'];
   const s2Cols=['A','B','C','D','E','F','G','H','I','J','K','L','M','N'];
 
@@ -913,8 +1043,78 @@ function downloadAll(){
       if(ws2[addr]) ws2[addr].s=pctStyle(v,bm);
     });
     ['I','L','N'].forEach(col=>{ const c=ws2[col+row]; if(c&&c.v!=='') c.z='0.0%'; });
+    // Dollar format
+    ['F','G','H','J','K','M'].forEach(col=>{ const c=ws2[col+row]; if(c&&c.v!=='') c.z=DOLLAR; });
   });
   XLSX.utils.book_append_sheet(wb,ws2,'Weekly Summary');
+
+  // ── Sheet 3: Daily Record ──
+  const drRows=buildDailyRecord();
+  const s3H=['Day','Date','Tickets','Net Sales','Tax','Total Sales',
+    'Credit Tip','Credit Service','Credit Total',
+    'Cash Tip','Cash Service','Cash Total',
+    'Tip Total','Tip %'];
+  const s3Cols=['A','B','C','D','E','F','G','H','I','J','K','L','M','N'];
+
+  const s3Data=drRows.map(r=>([
+    r.day, r.date, r.tickets,
+    r.netSales, r.tax, r.totalSalesRaw,
+    r.creditTip, r.creditSvc, r.creditTot,
+    r.cashTip, r.cashSvc, r.cashTot,
+    r.tipTotal, r.tipPct!=null?r.tipPct/100:''
+  ]));
+
+  // Totals row
+  const drTot=drRows.reduce((a,r)=>({
+    tickets:a.tickets+r.tickets, netSales:a.netSales+r.netSales, tax:a.tax+r.tax,
+    totalSalesRaw:a.totalSalesRaw+r.totalSalesRaw,
+    creditTip:a.creditTip+r.creditTip, creditSvc:a.creditSvc+r.creditSvc, creditTot:a.creditTot+r.creditTot,
+    cashTip:a.cashTip+r.cashTip, cashSvc:a.cashSvc+r.cashSvc, cashTot:a.cashTot+r.cashTot,
+    tipTotal:a.tipTotal+r.tipTotal
+  }),{tickets:0,netSales:0,tax:0,totalSalesRaw:0,creditTip:0,creditSvc:0,creditTot:0,cashTip:0,cashSvc:0,cashTot:0,tipTotal:0});
+  const drTotPct=drTot.netSales>0?drTot.tipTotal/drTot.netSales:null;
+  const s3TotRow=['TOTAL','',drTot.tickets,drTot.netSales,drTot.tax,drTot.totalSalesRaw,
+    drTot.creditTip,drTot.creditSvc,drTot.creditTot,
+    drTot.cashTip,drTot.cashSvc,drTot.cashTot,
+    drTot.tipTotal, drTotPct!=null?drTotPct:''];
+
+  const ws3=XLSX.utils.aoa_to_sheet([s3H,...s3Data,s3TotRow]);
+  ws3['!cols']=s3H.map((h,i)=>({wch:i===0?6:i===1?10:Math.max(h.length+4,13)}));
+  ws3['!rows']=[{hpt:28}];
+
+  // Header style
+  s3Cols.forEach(col=>applyStyle(ws3,col+'1',hdrStyle));
+
+  // Data rows
+  s3Data.forEach((row,i)=>{
+    const r=i+2;
+    const base=i%2===0?{fill:{fgColor:{rgb:'F7F6F2'}}}:{fill:{fgColor:{rgb:'FFFFFF'}}};
+    s3Cols.forEach((col,ci)=>{
+      const addr=col+r;
+      if(!ws3[addr]) return;
+      ws3[addr].s={...base, alignment:{horizontal:ci<=1?'left':'right'}};
+    });
+    // Tip % color (N col)
+    const tipV=row[13];
+    if(ws3['N'+r]&&tipV!=='') ws3['N'+r].s=pctStyle(tipV);
+    if(ws3['N'+r]&&tipV!=='') ws3['N'+r].z='0.0%';
+    // Dollar format: D=Net Sales, E=Tax, F=Total Sales, G-M=tip columns
+    ['D','E','F','G','H','I','J','K','L','M'].forEach(col=>{ const c=ws3[col+r]; if(c&&c.v!=='') c.z=DOLLAR; });
+  });
+
+  // Totals row style
+  const totRow=s3Data.length+2;
+  const totStyle={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'2A2D35'}},alignment:{horizontal:'right'}};
+  s3Cols.forEach((col,ci)=>{
+    const addr=col+totRow;
+    if(!ws3[addr]) return;
+    ws3[addr].s={...totStyle, alignment:{horizontal:ci<=1?'left':'right'}};
+  });
+  // Dollar format for totals row
+  ['D','E','F','G','H','I','J','K','L','M'].forEach(col=>{ const c=ws3[col+totRow]; if(c&&c.v!=='') c.z=DOLLAR; });
+  if(ws3['N'+totRow]&&drTotPct!=null){ ws3['N'+totRow].s=pctStyle(drTotPct); ws3['N'+totRow].z='0.0%'; }
+
+  XLSX.utils.book_append_sheet(wb,ws3,'Daily Record');
 
   XLSX.writeFile(wb,fileName);
 }
