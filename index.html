@@ -213,6 +213,7 @@
   <div class="login-box">
     <div class="login-logo">TipTrack</div>
     <div class="login-sub">Server Tip Analytics Dashboard</div>
+    <div style="font-size:.7rem;color:var(--text3);margin-bottom:24px">Last updated: Mar 16, 2026</div>
     <label class="login-label">Password</label>
     <input type="password" class="login-input" id="pwInput" placeholder="Enter password" onkeydown="if(event.key==='Enter')doLogin()">
     <button class="login-btn" onclick="doLogin()">Enter</button>
@@ -285,8 +286,8 @@
       </div>
       <div class="tip-legend">
         <span style="font-weight:600;color:var(--text2);margin-right:6px">Color Guide:</span>
-        <span class="tip-legend-item"><span class="tip-dot" style="background:var(--tip-green)"></span><span style="color:var(--tip-green)">18%+ Green</span></span>
-        <span class="tip-legend-item"><span class="tip-dot" style="background:var(--tip-blue)"></span><span style="color:var(--tip-blue)">Blue: 16%+ (general) / 15.5%+ (Mon–Thu 12pm–2pm) / 15%+ (Mon–Thu before 12pm)</span></span>
+        <span class="tip-legend-item"><span class="tip-dot" style="background:var(--tip-green)"></span><span style="color:var(--tip-green)">Above 18%</span></span>
+        <span class="tip-legend-item"><span class="tip-dot" style="background:var(--tip-blue)"></span><span style="color:var(--tip-blue)">Blue: 16% - 18% (general)</span></span>
         <span class="tip-legend-item"><span class="tip-dot" style="background:var(--tip-red)"></span><span style="color:var(--tip-red)">Below threshold — Red</span></span>
       </div>
       <!-- Desktop table -->
@@ -296,7 +297,7 @@
           <th class="num">Total Sales</th>
           <th class="num">Cash Sales</th><th class="num">Cash Tips</th><th class="num">Cash Grat.</th><th class="num">Cash %</th>
           <th class="num">NC Sales</th><th class="num">NC Tips</th><th class="num">NC Grat.</th><th class="num">NC %</th>
-          <th class="num">Total %</th>
+          <th class="num">Total Tips</th><th class="num">Total %</th>
         </tr></thead><tbody id="tbody2"></tbody></table>
       </div>
       <!-- Mobile cards -->
@@ -341,7 +342,7 @@
     <div class="table-wrap desktop-table" style="margin-bottom:20px">
       <div class="tip-legend">
         <span style="font-weight:600;color:var(--text2);margin-right:6px">Color Guide:</span>
-        <span class="tip-legend-item"><span class="tip-dot" style="background:var(--tip-green)"></span><span style="color:var(--tip-green)">18%+ Green</span></span>
+        <span class="tip-legend-item"><span class="tip-dot" style="background:var(--tip-green)"></span><span style="color:var(--tip-green)">Above 18%</span></span>
         <span class="tip-legend-item"><span class="tip-dot" style="background:var(--tip-blue)"></span><span style="color:var(--tip-blue)">Above threshold — Blue</span></span>
         <span class="tip-legend-item"><span class="tip-dot" style="background:var(--tip-red)"></span><span style="color:var(--tip-red)">Below threshold — Red</span></span>
       </div>
@@ -358,7 +359,7 @@
     <!-- mobile legend + cards -->
     <div class="tip-legend" style="border-radius:10px;border:1px solid var(--border);margin-bottom:14px">
       <span style="font-weight:600;color:var(--text2);margin-right:4px">Color:</span>
-      <span class="tip-legend-item"><span class="tip-dot" style="background:var(--tip-green)"></span><span style="color:var(--tip-green)">18%+</span></span>
+      <span class="tip-legend-item"><span class="tip-dot" style="background:var(--tip-green)"></span><span style="color:var(--tip-green)">Above 18%</span></span>
       <span class="tip-legend-item"><span class="tip-dot" style="background:var(--tip-blue)"></span><span style="color:var(--tip-blue)">Above threshold</span></span>
       <span class="tip-legend-item"><span class="tip-dot" style="background:var(--tip-red)"></span><span style="color:var(--tip-red)">Below threshold</span></span>
     </div>
@@ -404,11 +405,14 @@ function unlockTabs(){
 const DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DAY_ORDER=['Mon','Tue','Wed','Thu','Fri','Sat','Sun']; // week order
 
-// Only show Server role
-function isServer(role){ return role==='Server'; }
+// Only show Server role (including Server GT variants)
+function isServer(role){ return role==='Server'||/^Server GT/i.test(role)||role==='GroupTable'; }
 function normalizeRole(t){
   if(!t) return 'Other';
+  // Server GT 1/2/4 등 → 원본 그대로 유지 (대소문자 정규화만)
+  if(/^server\s+gt/i.test(t)) return t.trim().replace(/^server\s+gt/i, 'Server GT');
   if(/^server/i.test(t)) return 'Server';
+  if(/^group\s*table/i.test(t)) return 'GroupTable';
   if(/bartender/i.test(t)) return 'Bartender';
   if(/host/i.test(t)) return 'Host';
   if(/manager/i.test(t)) return 'Manager';
@@ -492,7 +496,15 @@ function parseCSV(text,fileName){
       if(ampm==='AM'&&h===12) h=0;
       inHour=h; // 0-23
     }
-    tmp.push({ date:parseDate(row['In Date']), employee:row['Employee'], role, inHour, inMin,
+    // Business date: 00:00~03:59 → previous day
+    let dateStr = parseDate(row['In Date']);
+    if(inHour!==null && inHour < 4 && dateStr){
+      const d = parseLocalDate(dateStr);
+      d.setDate(d.getDate()-1);
+      const yy=d.getFullYear(), mm=String(d.getMonth()+1).padStart(2,'0'), dd=String(d.getDate()).padStart(2,'0');
+      dateStr=`${yy}-${mm}-${dd}`;
+    }
+    tmp.push({ date:dateStr, employee:row['Employee'], role, inHour, inMin,
       tickets: parseInt(row['Closed']||'0')||0,
       totalSales:preTax(getNum(row,'Total Sales')),
       totalSalesRaw:getNum(row,'Total Sales'),
@@ -501,9 +513,9 @@ function parseCSV(text,fileName){
       cashTips:getNum(row,'Cash Tips Decl.'), cashGratuity:getNum(row,'Cash Gratuity'),
       nonCashTips:getNum(row,'Non-Cash Tips'), nonCashGratuity:getNum(row,'Non-Cash Gratuity') });
   }
-  // Merge same employee+date
+  // Merge same employee+date+role (different jobs stay separate)
   const merged={};
-  tmp.forEach(r=>{ const k=r.date+'|'+r.employee;
+  tmp.forEach(r=>{ const k=r.date+'|'+r.employee+'|'+r.role;
     if(!merged[k]){ merged[k]={...r}; }
     else {
       ['tickets','totalSales','totalSalesRaw','cashSales','nonCashSales','cashTips','cashGratuity','nonCashTips','nonCashGratuity'].forEach(f=>merged[k][f]+=r[f]);
@@ -577,7 +589,7 @@ function renderPage2(){
     <div class="stat-card"><div class="stat-label">Servers</div><div class="stat-val">${[...new Set(rows.map(r=>r.employee))].length}</div></div>`;
 
   if(!rows.length){
-    document.getElementById('tbody2').innerHTML=`<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:28px">No data</td></tr>`;
+    document.getElementById('tbody2').innerHTML=`<tr><td colspan="14" style="text-align:center;color:var(--text3);padding:28px">No data</td></tr>`;
     document.getElementById('cardList2').innerHTML=`<div style="text-align:center;color:var(--text3);padding:28px;font-size:.85rem">No data</div>`; return;
   }
 
@@ -592,14 +604,16 @@ function renderPage2(){
   if(sortMode==='date'){
     const groups=groupRows(rows,r=>r.date);
     Object.keys(groups).sort().forEach(date=>{
-      tbodyHtml+=`<tr class="day-group-header"><td colspan="13">${date} &nbsp;—&nbsp; ${getDay(date)}</td></tr>`;
+      tbodyHtml+=`<tr class="day-group-header"><td colspan="14">${date} &nbsp;—&nbsp; ${getDay(date)}</td></tr>`;
       groups[date].forEach(r=>{ tbodyHtml+=desktopRow(r); });
+      tbodyHtml+=subtotalRow(groups[date]);
     });
   } else {
     const groups=groupRows(rows,r=>r.employee);
     Object.keys(groups).sort().forEach(name=>{
-      tbodyHtml+=`<tr class="day-group-header"><td colspan="13">${name}</td></tr>`;
+      tbodyHtml+=`<tr class="day-group-header"><td colspan="14">${name}</td></tr>`;
       groups[name].forEach(r=>{ tbodyHtml+=desktopRow(r); });
+      tbodyHtml+=subtotalRow(groups[name]);
     });
   }
   document.getElementById('tbody2').innerHTML=tbodyHtml;
@@ -622,13 +636,43 @@ function renderPage2(){
   document.getElementById('cardList2').innerHTML=cardHtml;
 }
 
+function subtotalRow(groupRows, label){
+  const ts  = groupRows.reduce((a,r)=>a+r.totalSales,0);
+  const cs  = groupRows.reduce((a,r)=>a+r.cashSales,0);
+  const ct  = groupRows.reduce((a,r)=>a+r.cashTips,0);
+  const cg  = groupRows.reduce((a,r)=>a+r.cashGratuity,0);
+  const ns  = groupRows.reduce((a,r)=>a+r.nonCashSales,0);
+  const nt  = groupRows.reduce((a,r)=>a+r.nonCashTips,0);
+  const ng  = groupRows.reduce((a,r)=>a+r.nonCashGratuity,0);
+  const cashTot=ct+cg, ncTot=nt+ng, tipTot=cashTot+ncTot;
+  const cashPct = cs>0?cashTot/cs*100:null;
+  const ncPct   = ns>0?ncTot/ns*100:null;
+  const totPct  = ts>0?tipTot/ts*100:null;
+  return`<tr style="background:rgba(232,201,126,.06);border-top:1px solid rgba(232,201,126,.2)">
+    <td colspan="3" style="font-size:.7rem;font-weight:700;color:var(--accent);letter-spacing:.06em;padding:7px 12px">SUBTOTAL</td>
+    <td class="num" style="font-weight:600">${fmt$(ts)}</td>
+    <td class="num">${fmt$(cs)}</td>
+    <td class="num">${fmt$(ct)}</td>
+    <td class="num">${fmt$(cg)}</td>
+    <td class="num"><span class="tip-pct ${pctClass(cashPct)}">${fmtPct(cashPct)}</span></td>
+    <td class="num">${fmt$(ns)}</td>
+    <td class="num">${fmt$(nt)}</td>
+    <td class="num">${fmt$(ng)}</td>
+    <td class="num"><span class="tip-pct ${pctClass(ncPct)}">${fmtPct(ncPct)}</span></td>
+    <td class="num" style="font-weight:700;color:var(--accent)">${fmt$(tipTot)}</td>
+    <td class="num"><span class="tip-pct ${pctClass(totPct)}">${fmtPct(totPct)}</span></td>
+  </tr>`;
+}
+
+
 function desktopRow(r){
-  const{cashPct,ncPct,totalPct}=calcTipPcts(r);
+  const{cashPct,ncPct,totalPct,cashTotal,ncTotal}=calcTipPcts(r);
   const sl=shiftLabel(r.date,r.inHour,r.inMin);
+  const tipTotal=cashTotal+ncTotal;
   return`<tr>
     <td><span style="font-family:'DM Mono',monospace;font-size:.75rem">${r.date}</span></td>
     <td>${dayPill(r.date)}</td>
-    <td style="font-weight:500">${r.employee}${sl}</td>
+    <td style="font-weight:500">${/^Server GT/i.test(r.role)?`<span style="color:var(--accent)">${r.employee}</span>`:r.employee}${/^Server GT/i.test(r.role)?`<span style="font-size:.63rem;color:var(--accent);background:rgba(232,201,126,.1);border:1px solid rgba(232,201,126,.25);border-radius:4px;padding:1px 6px;margin-left:6px">${r.role}</span>`:''}${sl}</td>
     <td class="num">${fmt$(r.totalSales)}</td>
     <td class="num">${fmt$(r.cashSales)}</td>
     <td class="num">${fmt$(r.cashTips)}</td>
@@ -638,6 +682,7 @@ function desktopRow(r){
     <td class="num">${fmt$(r.nonCashTips)}</td>
     <td class="num">${fmt$(r.nonCashGratuity)}</td>
     <td class="num"><span class="tip-pct ${pctClassShift(ncPct,r.date,r.inHour)}">${fmtPct(ncPct)}</span></td>
+    <td class="num" style="font-weight:600">${fmt$(tipTotal)}</td>
     <td class="num"><span class="tip-pct ${pctClassShift(totalPct,r.date,r.inHour)}">${fmtPct(totalPct)}</span></td>
   </tr>`;
 }
@@ -650,10 +695,10 @@ function mobileCard(r){
   return`<div class="row-card">
     <div style="margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <div class="row-card-name">${r.employee}</div>
+        <div class="row-card-name" style="${/^Server GT/i.test(r.role)?'color:var(--accent)':''}">${r.employee}</div>
         ${sl}
       </div>
-      <div style="font-size:.68rem;color:var(--text3);margin-top:3px">Server</div>
+      <div style="font-size:.68rem;color:var(--text3);margin-top:3px">${r.role}</div>
     </div>
     <div class="row-card-divider"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
